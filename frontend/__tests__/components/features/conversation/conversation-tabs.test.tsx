@@ -76,21 +76,53 @@ describe("ConversationTabs localStorage behavior", () => {
       expect(parsed).toHaveProperty("unpinnedTabs");
     });
 
-    it("should store unpinned tabs in consolidated key via context menu", async () => {
+    it("should call setUnpinnedTabs when clicking a tab in context menu", async () => {
       mockConversationId = REAL_CONVERSATION_ID;
       const user = userEvent.setup();
+      const mockSetUnpinnedTabs = vi.fn();
 
-      render(<ConversationTabsContextMenu isOpen={true} onClose={vi.fn()} />);
+      render(
+        <ConversationTabsContextMenu
+          isOpen={true}
+          onClose={vi.fn()}
+          unpinnedTabs={[]}
+          setUnpinnedTabs={mockSetUnpinnedTabs}
+        />,
+        { wrapper: createWrapper(REAL_CONVERSATION_ID) }
+      );
 
       const terminalItem = screen.getByText("COMMON$TERMINAL");
       await user.click(terminalItem);
 
-      const consolidatedKey = `conversation-state-${REAL_CONVERSATION_ID}`;
-      const storedState = localStorage.getItem(consolidatedKey);
-      expect(storedState).not.toBeNull();
+      expect(mockSetUnpinnedTabs).toHaveBeenCalledWith(["terminal"]);
+    });
 
-      const parsed = JSON.parse(storedState!);
-      expect(parsed.unpinnedTabs).toContain("terminal");
+    it("should hide tab and store unpinned tabs in consolidated key via context menu", async () => {
+      mockConversationId = REAL_CONVERSATION_ID;
+      const user = userEvent.setup();
+
+      render(<ConversationTabs />, {
+        wrapper: createWrapper(REAL_CONVERSATION_ID),
+      });
+
+      // Verify terminal tab is visible initially
+      expect(screen.getByTestId("conversation-tab-terminal")).toBeInTheDocument();
+
+      // Open context menu and click terminal to unpin it
+      const menuButton = screen.getByLabelText("COMMON$MORE_OPTIONS");
+      await user.click(menuButton);
+
+      const terminalItem = screen.getByText("COMMON$TERMINAL");
+      await user.click(terminalItem);
+
+      // Terminal tab should be hidden
+      expect(screen.queryByTestId("conversation-tab-terminal")).not.toBeInTheDocument();
+
+      // localStorage should reflect the change
+      const storedState = JSON.parse(
+        localStorage.getItem(`conversation-state-${REAL_CONVERSATION_ID}`)!,
+      );
+      expect(storedState.unpinnedTabs).toContain("terminal");
     });
   });
 

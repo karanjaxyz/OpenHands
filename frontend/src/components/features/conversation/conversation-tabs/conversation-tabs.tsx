@@ -25,7 +25,7 @@ export function ConversationTabs() {
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const { state: persistedState } =
+  const { state: persistedState, setUnpinnedTabs } =
     useConversationLocalStorageState(conversationId);
 
   const shouldUsePlanningAgent = USE_PLANNING_AGENT();
@@ -183,6 +183,8 @@ export function ConversationTabs() {
         <ConversationTabsContextMenu
           isOpen={isMenuOpen}
           onClose={() => setIsMenuOpen(false)}
+          unpinnedTabs={persistedState.unpinnedTabs}
+          setUnpinnedTabs={setUnpinnedTabs}
         />
       </div>
     </div>

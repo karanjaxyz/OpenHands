@@ -2,8 +2,6 @@ import { useTranslation } from "react-i18next";
 import { ContextMenu } from "#/ui/context-menu";
 import { ContextMenuListItem } from "../../context-menu/context-menu-list-item";
 import { useClickOutsideElement } from "#/hooks/use-click-outside-element";
-import { useConversationId } from "#/hooks/use-conversation-id";
-import { useConversationLocalStorageState } from "#/utils/conversation-local-storage";
 import { I18nKey } from "#/i18n/declaration";
 import TerminalIcon from "#/icons/terminal.svg?react";
 import GlobeIcon from "#/icons/globe.svg?react";
@@ -18,17 +16,18 @@ import LessonPlanIcon from "#/icons/lesson-plan.svg?react";
 interface ConversationTabsContextMenuProps {
   isOpen: boolean;
   onClose: () => void;
+  unpinnedTabs: string[];
+  setUnpinnedTabs: (tabs: string[]) => void;
 }
 
 export function ConversationTabsContextMenu({
   isOpen,
   onClose,
+  unpinnedTabs,
+  setUnpinnedTabs,
 }: ConversationTabsContextMenuProps) {
   const ref = useClickOutsideElement<HTMLUListElement>(onClose);
   const { t } = useTranslation();
-  const { conversationId } = useConversationId();
-  const { state, setUnpinnedTabs } =
-    useConversationLocalStorageState(conversationId);
 
   const shouldUsePlanningAgent = USE_PLANNING_AGENT();
 
@@ -51,10 +50,10 @@ export function ConversationTabsContextMenu({
   if (!isOpen) return null;
 
   const handleTabClick = (tab: string) => {
-    if (state.unpinnedTabs.includes(tab)) {
-      setUnpinnedTabs(state.unpinnedTabs.filter((item) => item !== tab));
+    if (unpinnedTabs.includes(tab)) {
+      setUnpinnedTabs(unpinnedTabs.filter((item) => item !== tab));
     } else {
-      setUnpinnedTabs([...state.unpinnedTabs, tab]);
+      setUnpinnedTabs([...unpinnedTabs, tab]);
     }
   };
 
@@ -66,7 +65,7 @@ export function ConversationTabsContextMenu({
       className="mt-2 w-fit z-[9999]"
     >
       {tabConfig.map(({ tab, icon: Icon, i18nKey }) => {
-        const pinned = !state.unpinnedTabs.includes(tab);
+        const pinned = !unpinnedTabs.includes(tab);
         return (
           <ContextMenuListItem
             key={tab}
