@@ -54,6 +54,8 @@ import {
 import {
   getProcessTreeSpawnOptions,
   isProcessRunning,
+  isStaleAutomationMigrationError,
+  resetStaleAutomationDb,
   resolveWindowsCommand,
   signalProcessTree,
 } from "./dev-process-utils.mjs";
@@ -227,6 +229,10 @@ function spawnService(name, command, args, options = {}) {
   );
 
   const color = options.color || c.reset;
+  // Only accumulated when a caller wants to inspect it on exit (e.g. to
+  // detect a known failure signature); unbounded services would otherwise
+  // hold their entire stderr history in memory for the life of the process.
+  let stderrTail = options.onExit ? "" : null;
 
   proc.stdout.on("data", (data) => {
     data
@@ -237,8 +243,11 @@ function spawnService(name, command, args, options = {}) {
   });
 
   proc.stderr.on("data", (data) => {
-    data
-      .toString()
+    const text = data.toString();
+    if (stderrTail !== null) {
+      stderrTail = (stderrTail + text).slice(-8000);
+    }
+    text
       .split("\n")
       .filter(Boolean)
       .forEach((line) => logService(name, line.trim(), c.yellow));
@@ -253,6 +262,9 @@ function spawnService(name, command, args, options = {}) {
       logService(name, `Exited with code ${code}`, c.red);
     }
     processes.delete(name);
+    if (options.onExit) {
+      options.onExit(code, stderrTail || "");
+    }
   });
 
   processes.set(name, proc);
@@ -329,7 +341,7 @@ function buildAutomationBackendEnv(config, env = process.env) {
   return {
     AUTOMATION_AGENT_SERVER_URL: `http://localhost:${config.agentServerPort}`,
     AUTOMATION_AGENT_SERVER_API_KEY: config.sessionApiKey,
-    AUTOMATION_DB_URL: `sqlite+aiosqlite:///${join(config.stateDir, "automations.db")}`,
+    AUTOMATION_DB_URL: `sqlite+aiosqlite:///${getAutomationDbPath(config)}`,
     AUTOMATION_BASE_URL: `http://localhost:${config.ingressPort}`,
     AUTOMATION_WORKSPACE_BASE: join(config.stateDir, "workspaces"),
     AUTOMATION_LOCAL_API_KEY: config.sessionApiKey,
@@ -341,7 +353,11 @@ function buildAutomationBackendEnv(config, env = process.env) {
   };
 }
 
-function startAutomationBackend(config) {
+function getAutomationDbPath(config) {
+  return join(config.stateDir, "automations.db");
+}
+
+function startAutomationBackend(config, isRetry = false) {
   logService(
     "automation",
     `Starting on port ${config.autoBackendPort}...`,
@@ -350,6 +366,8 @@ function startAutomationBackend(config) {
 
   const automationCmd = buildAutomationCommand(process.env);
   logService("automation", `Using ${automationCmd.source}`, c.dim);
+
+  const automationDbPath = getAutomationDbPath(config);
 
   spawnService(
     "automation",
@@ -365,6 +383,24 @@ function startAutomationBackend(config) {
       cwd: config.stateDir,
       env: buildAutomationBackendEnv(config),
       color: c.green,
+      onExit: (code, stderrTail) => {
+        if (
+          isRetry ||
+          shuttingDown ||
+          code === 0 ||
+          code === null ||
+          !isStaleAutomationMigrationError(stderrTail)
+        ) {
+          return;
+        }
+        logService(
+          "automation",
+          `Stale migration history detected in ${automationDbPath} — resetting database and retrying once...`,
+          c.yellow,
+        );
+        resetStaleAutomationDb(automationDbPath);
+        startAutomationBackend(config, true);
+      },
     },
   );
 }

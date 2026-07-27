@@ -1,8 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   getProcessTreeSpawnOptions,
   isProcessRunning,
+  isStaleAutomationMigrationError,
+  resetStaleAutomationDb,
   resolveWindowsCommand,
 } from "../../scripts/dev-process-utils.mjs";
 
@@ -57,5 +63,46 @@ describe("resolveWindowsCommand", () => {
 
   it("falls back to the original command when the lookup fails on Windows", () => {
     expect(resolveWindowsCommand("uvx", "win32", () => null)).toBe("uvx");
+  });
+});
+
+describe("automation migration recovery", () => {
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("recognizes the stale Alembic revision error", () => {
+    expect(
+      isStaleAutomationMigrationError(
+        "alembic.util.exc.CommandError: Can't locate revision identified by '007'",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not misidentify unrelated startup failures", () => {
+    expect(isStaleAutomationMigrationError("Address already in use")).toBe(
+      false,
+    );
+    expect(isStaleAutomationMigrationError("")).toBe(false);
+  });
+
+  it("deletes the automation database file when present", () => {
+    dir = mkdtempSync(join(tmpdir(), "oh-automation-db-"));
+    const dbPath = join(dir, "automations.db");
+    writeFileSync(dbPath, "stale");
+
+    resetStaleAutomationDb(dbPath);
+
+    expect(existsSync(dbPath)).toBe(false);
+  });
+
+  it("is a no-op when the database file does not exist", () => {
+    dir = mkdtempSync(join(tmpdir(), "oh-automation-db-"));
+    const dbPath = join(dir, "automations.db");
+
+    expect(() => resetStaleAutomationDb(dbPath)).not.toThrow();
+    expect(existsSync(dbPath)).toBe(false);
   });
 });

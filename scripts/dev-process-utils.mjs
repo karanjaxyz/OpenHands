@@ -1,5 +1,35 @@
 import { spawnSync } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
 import process from "node:process";
+
+/**
+ * Alembic raises this when the automation SQLite DB points at a migration
+ * revision that no longer exists in openhands-automation's history (e.g.
+ * after an upgrade that squashes/renumbers migrations). Left alone, the
+ * automation service exits on every start and the Automate tab never comes
+ * back up.
+ */
+const AUTOMATION_MIGRATION_ERROR_PATTERN =
+  /Can't locate revision identified by/;
+
+/**
+ * True when a chunk of automation-service stderr matches the stale-migration
+ * failure above, as opposed to some other startup error we shouldn't paper
+ * over by deleting the user's data.
+ */
+export function isStaleAutomationMigrationError(stderrText) {
+  return AUTOMATION_MIGRATION_ERROR_PATTERN.test(stderrText);
+}
+
+/**
+ * Delete the automation SQLite database so the next start runs migrations
+ * from scratch. Safe to call even if the file was already removed.
+ */
+export function resetStaleAutomationDb(dbPath) {
+  if (existsSync(dbPath)) {
+    rmSync(dbPath, { force: true });
+  }
+}
 
 /**
  * Return true while Node still considers the child process active.

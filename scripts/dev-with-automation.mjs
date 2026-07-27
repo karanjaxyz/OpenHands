@@ -67,6 +67,8 @@ import {
   createShutdownHookRegistry,
   getProcessTreeSpawnOptions,
   isProcessRunning,
+  isStaleAutomationMigrationError,
+  resetStaleAutomationDb,
   resolveWindowsCommand,
   signalProcessTree,
 } from "./dev-process-utils.mjs";
@@ -584,6 +586,10 @@ function spawnService(name, command, args, options = {}) {
 
   const color = options.color || c.reset;
   const parseLogLine = options.parseLogLine;
+  // Only accumulated when a caller wants to inspect it on exit (e.g. to
+  // detect a known failure signature); unbounded services would otherwise
+  // hold their entire stderr history in memory for the life of the process.
+  let stderrTail = options.onExit ? "" : null;
 
   proc.stdout.on("data", (data) => {
     data
@@ -603,8 +609,11 @@ function spawnService(name, command, args, options = {}) {
   });
 
   proc.stderr.on("data", (data) => {
-    data
-      .toString()
+    const text = data.toString();
+    if (stderrTail !== null) {
+      stderrTail = (stderrTail + text).slice(-8000);
+    }
+    text
       .split("\n")
       .filter(Boolean)
       .forEach((line) => {
@@ -630,6 +639,9 @@ function spawnService(name, command, args, options = {}) {
       emitServiceLog(name, `exited with code ${code}`, "error");
     }
     processes.delete(name);
+    if (options.onExit) {
+      options.onExit(code, stderrTail || "");
+    }
   });
 
   processes.set(name, proc);
@@ -824,7 +836,7 @@ function startAgentServer(config) {
   );
 }
 
-function startAutomationBackend(config) {
+function startAutomationBackend(config, isRetry = false) {
   logService(
     "automation",
     `Starting on port ${config.autoBackendPort}...`,
@@ -833,6 +845,12 @@ function startAutomationBackend(config) {
 
   const automationCmd = buildAutomationCommand(process.env);
   logService("automation", `Using ${automationCmd.source}`, c.dim);
+
+  // ~/.openhands/automation/automations.db — matches docker/entrypoint.sh.
+  const automationDbPath = join(
+    dirname(config.stateDir),
+    SHARED_DEFAULTS.paths.automationDb,
+  );
 
   spawnService(
     "automation",
@@ -846,6 +864,24 @@ function startAutomationBackend(config) {
     ],
     {
       cwd: config.stateDir,
+      onExit: (code, stderrTail) => {
+        if (
+          isRetry ||
+          shuttingDown ||
+          code === 0 ||
+          code === null ||
+          !isStaleAutomationMigrationError(stderrTail)
+        ) {
+          return;
+        }
+        logService(
+          "automation",
+          `Stale migration history detected in ${automationDbPath} — resetting database and retrying once...`,
+          c.yellow,
+        );
+        resetStaleAutomationDb(automationDbPath);
+        startAutomationBackend(config, true);
+      },
       env: {
         // Force UTF-8 for all Python file I/O (same reason as agent-server;
         // see buildAgentServerEnv in dev-safe.mjs).
@@ -878,8 +914,7 @@ function startAutomationBackend(config) {
             }
           : {}),
         AUTOMATION_AGENT_SERVER_API_KEY: config.sessionApiKey,
-        // ~/.openhands/automation/automations.db — matches docker/entrypoint.sh.
-        AUTOMATION_DB_URL: `sqlite+aiosqlite:///${join(dirname(config.stateDir), SHARED_DEFAULTS.paths.automationDb)}`,
+        AUTOMATION_DB_URL: `sqlite+aiosqlite:///${automationDbPath}`,
         // The automation backend uses this as its publicly-reachable base
         // URL: it's appended to callback URLs and injected into each
         // sandbox as `AUTOMATION_API_URL` (consumed by setup.sh for
