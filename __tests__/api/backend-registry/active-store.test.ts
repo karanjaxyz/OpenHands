@@ -9,12 +9,18 @@ import {
   subscribeActiveBackend,
 } from "#/api/backend-registry/active-store";
 import { SEEDED_DEFAULT_BACKEND_ID } from "#/api/backend-registry/default-backend";
+import {
+  __resetHealthStoreForTests,
+  recordBackendFailure,
+} from "#/api/backend-registry/health-store";
+import { MAX_CONSECUTIVE_FAILURES } from "#/api/backend-registry/health-storage";
 import type { Backend } from "#/api/backend-registry/types";
 
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   __resetActiveStoreForTests();
+  __resetHealthStoreForTests();
 });
 
 afterEach(() => {
@@ -22,6 +28,7 @@ afterEach(() => {
   window.sessionStorage.clear();
   vi.unstubAllEnvs();
   __resetActiveStoreForTests();
+  __resetHealthStoreForTests();
 });
 
 const cloudBackend: Backend = {
@@ -37,6 +44,14 @@ const localBackend: Backend = {
   name: "Local 1",
   host: "http://localhost:9000",
   apiKey: "k",
+  kind: "local",
+};
+
+const secondLocalBackend: Backend = {
+  id: "local-2",
+  name: "Local 2",
+  host: "http://localhost:9001",
+  apiKey: "k2",
   kind: "local",
 };
 
@@ -86,6 +101,40 @@ describe("active-store", () => {
     setActiveSelection(null);
 
     expect(getActiveBackend().backend).toEqual(cloudBackend);
+  });
+
+  it("skips a disabled backend at index 0 and falls back to a healthy one", () => {
+    setRegisteredBackends([localBackend, secondLocalBackend]);
+    for (let i = 0; i < MAX_CONSECUTIVE_FAILURES; i += 1) {
+      recordBackendFailure(localBackend.id, new Error("connection refused"));
+    }
+    setActiveSelection({ backendId: localBackend.id });
+
+    // Selecting the disabled backend directly still resolves it — health
+    // only affects the *fallback* path, not an explicit user selection.
+    expect(getActiveBackend().backend).toEqual(localBackend);
+
+    // Removing the selection forces the fallback path, which should skip
+    // the disabled backend in favor of the healthy one.
+    setActiveSelection(null);
+    expect(getActiveBackend().backend).toEqual(secondLocalBackend);
+  });
+
+  it("prefers the backend with fewer recorded consecutive failures", () => {
+    setRegisteredBackends([localBackend, secondLocalBackend]);
+    recordBackendFailure(localBackend.id, new Error("timeout"));
+    recordBackendFailure(localBackend.id, new Error("timeout"));
+    recordBackendFailure(secondLocalBackend.id, new Error("timeout"));
+    setActiveSelection(null);
+
+    expect(getActiveBackend().backend).toEqual(secondLocalBackend);
+  });
+
+  it("keeps insertion order as the tiebreaker when health is equal", () => {
+    setRegisteredBackends([secondLocalBackend, localBackend]);
+    setActiveSelection(null);
+
+    expect(getActiveBackend().backend).toEqual(secondLocalBackend);
   });
 
   it("uses the active local backend as the effective local backend", () => {

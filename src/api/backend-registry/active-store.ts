@@ -1,3 +1,4 @@
+import { getBackendHealthEntry } from "./health-store";
 import {
   readStoredActiveBackend,
   readStoredBackends,
@@ -33,8 +34,38 @@ export function isNoBackend(backend: Backend): boolean {
   return backend.id === NO_BACKEND_ID;
 }
 
+/**
+ * True when `a` should be preferred over `b` as a fallback: not disabled
+ * while `b` is, or — if both are equally disabled — fewer recorded
+ * consecutive failures. A backend with no health entry is treated as
+ * healthy (0 failures, not disabled), since it simply hasn't been probed
+ * yet. Ties are resolved by keeping the earlier candidate, which preserves
+ * insertion order as the final tiebreaker.
+ */
+function isHealthierFallback(a: Backend, b: Backend): boolean {
+  const healthA = getBackendHealthEntry(a.id);
+  const healthB = getBackendHealthEntry(b.id);
+
+  const disabledA = healthA?.disabled ?? false;
+  const disabledB = healthB?.disabled ?? false;
+  if (disabledA !== disabledB) return !disabledA;
+
+  const failuresA = healthA?.consecutiveFailures ?? 0;
+  const failuresB = healthB?.consecutiveFailures ?? 0;
+  return failuresA < failuresB;
+}
+
+// Picks the healthiest registered backend rather than always the first:
+// a cloud backend or a dead local backend sitting at index 0 used to
+// force `getEffectiveLocalBackend()` to null even when a healthy backend
+// existed elsewhere in the list. Ranks by recorded health (disabled >
+// failure count), keeping insertion order as the tiebreaker.
 function pickFallbackBackend(backends: Backend[]): Backend {
-  return backends[0] ?? NO_BACKEND;
+  if (backends.length === 0) return NO_BACKEND;
+
+  return backends.reduce((best, candidate) =>
+    isHealthierFallback(candidate, best) ? candidate : best,
+  );
 }
 
 function computeSnapshot(
