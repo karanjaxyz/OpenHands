@@ -250,6 +250,14 @@ describe("getSettingsFieldConstraints", () => {
     const constraints = getSettingsFieldConstraints("unknown.field");
     expect(constraints).toBeUndefined();
   });
+
+  it("returns a minimum of 1 for condenser.max_size", () => {
+    const constraints = getSettingsFieldConstraints("condenser.max_size");
+    expect(constraints).toEqual({
+      min: 1,
+      step: 1,
+    });
+  });
 });
 
 describe("warning logging", () => {

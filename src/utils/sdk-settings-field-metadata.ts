@@ -61,6 +61,15 @@ const FIELD_METADATA: Record<string, SettingsFieldMetadata> = {
       step: 0.1,
     },
   },
+  // The condenser can't usefully keep a non-positive number of events.
+  // Bounds the number input so it can't be dragged/typed below 0 and
+  // gives coerceFieldValue's save-time validation a clear error message.
+  "condenser.max_size": {
+    constraints: {
+      min: 1,
+      step: 1,
+    },
+  },
 };
 
 export function getSettingsFieldConstraints(fieldKey: string) {
