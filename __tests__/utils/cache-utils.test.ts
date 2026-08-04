@@ -61,4 +61,29 @@ describe("handleActionEventCacheInvalidation", () => {
     );
     expect(conversationInvalidations).toHaveLength(0);
   });
+
+  it("invalidates file_changes when a TerminalAction runs, same as ExecuteBashAction", () => {
+    const queryClient = new QueryClient();
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+
+    handleActionEventCacheInvalidation(
+      makeActionEvent({
+        tool_name: "terminal",
+        action: {
+          kind: "TerminalAction",
+          command: "git push",
+          is_input: false,
+          timeout: null,
+          reset: false,
+        },
+      }),
+      "conv-1",
+      queryClient,
+    );
+
+    expect(spy).toHaveBeenCalledWith(
+      { queryKey: ["file_changes", "conv-1"] },
+      { cancelRefetch: false },
+    );
+  });
 });

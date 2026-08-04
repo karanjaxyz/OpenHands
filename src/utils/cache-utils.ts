@@ -26,7 +26,8 @@ export const handleActionEventCacheInvalidation = (
   if (
     action.kind === "StrReplaceEditorAction" ||
     action.kind === "FileEditorAction" ||
-    action.kind === "ExecuteBashAction"
+    action.kind === "ExecuteBashAction" ||
+    action.kind === "TerminalAction"
   ) {
     queryClient.invalidateQueries(
       {
