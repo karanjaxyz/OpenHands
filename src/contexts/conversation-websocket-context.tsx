@@ -45,7 +45,10 @@ import type {
   ConversationErrorEvent,
   ServerErrorEvent,
 } from "#/types/agent-server/core/events/conversation-state-event";
-import { handleActionEventCacheInvalidation } from "#/utils/cache-utils";
+import {
+  handleActionEventCacheInvalidation,
+  handleExecuteBashObservationCacheInvalidation,
+} from "#/utils/cache-utils";
 import { buildWebSocketUrl } from "#/utils/websocket-url";
 import type {
   AppConversation,
@@ -584,6 +587,18 @@ export function ConversationWebSocketProvider({
               .map((c) => c.text)
               .join("\n");
             appendOutput(textContent);
+
+            // Re-invalidate file_changes now that the command has actually
+            // completed. ExecuteBashAction invalidates it at dispatch time,
+            // which is too early for long-running commands (e.g. `git commit
+            // && git push`) and leaves the diff panel stuck on a stale
+            // pre-completion snapshot.
+            const currentConversationId =
+              conversationId || "test-conversation-id"; // TODO: Get from context
+            handleExecuteBashObservationCacheInvalidation(
+              currentConversationId,
+              queryClient,
+            );
           }
 
           // Handle BrowserObservation events - update browser store with screenshot
@@ -790,6 +805,18 @@ export function ConversationWebSocketProvider({
               .map((c) => c.text)
               .join("\n");
             appendOutput(textContent);
+
+            // Re-invalidate file_changes now that the command has actually
+            // completed. ExecuteBashAction invalidates it at dispatch time,
+            // which is too early for long-running commands (e.g. `git commit
+            // && git push`) and leaves the diff panel stuck on a stale
+            // pre-completion snapshot.
+            const currentConversationId =
+              conversationId || "test-conversation-id"; // TODO: Get from context
+            handleExecuteBashObservationCacheInvalidation(
+              currentConversationId,
+              queryClient,
+            );
           }
 
           // Handle PlanningFileEditorObservation - only update plan for Plan.md

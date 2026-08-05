@@ -404,6 +404,39 @@ describe("ConversationWebSocketProvider — conversation-scoped event store", ()
       ]);
     });
 
+    it("re-invalidates file_changes once the bash command completes, not only when it starts", async () => {
+      await renderCaptured();
+      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+      const action = makeBashAction("bash-action-2", "git commit && git push");
+      deliver(action);
+
+      const fileChangesInvalidations = () =>
+        invalidateSpy.mock.calls.filter(
+          ([arg]) =>
+            (arg as { queryKey?: unknown[] })?.queryKey?.[0] === "file_changes",
+        );
+
+      // Dispatch alone (the command may still be running) already
+      // invalidates once - the panel must not stay stuck there forever.
+      expect(fileChangesInvalidations().length).toBeGreaterThanOrEqual(1);
+      const invalidationsAtDispatch = fileChangesInvalidations().length;
+
+      // Once the observation confirms completion, it must invalidate again
+      // so the diff reflects the finished commit/push instead of the
+      // pre-completion snapshot (#15692).
+      const observation = makeBashObservation(
+        "bash-obs-2",
+        "bash-action-2",
+        "pushed\n",
+      );
+      deliver(observation);
+
+      expect(fileChangesInvalidations().length).toBeGreaterThan(
+        invalidationsAtDispatch,
+      );
+    });
+
     it("does not re-raise a dismissed error banner when the error event is replayed", async () => {
       await renderCaptured();
 

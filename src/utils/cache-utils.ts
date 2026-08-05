@@ -59,3 +59,28 @@ export const handleActionEventCacheInvalidation = (
     useModelStore.getState().clearActiveProfile(conversationId);
   }
 };
+
+/**
+ * Handle cache invalidation for ExecuteBashObservation
+ *
+ * ExecuteBashAction invalidates file_changes as soon as the command is
+ * dispatched, but a bash command (e.g. `git commit && git push`) can still
+ * be running on the sandbox at that point. Re-invalidate once the matching
+ * observation confirms the command actually finished, so the diff panel
+ * reflects the post-command working tree instead of getting stuck on a
+ * stale pre-completion snapshot.
+ *
+ * @param conversationId - The conversation ID for cache keys
+ * @param queryClient - The TanStack Query client instance
+ */
+export const handleExecuteBashObservationCacheInvalidation = (
+  conversationId: string,
+  queryClient: QueryClient,
+) => {
+  queryClient.invalidateQueries(
+    {
+      queryKey: ["file_changes", conversationId],
+    },
+    { cancelRefetch: false },
+  );
+};
