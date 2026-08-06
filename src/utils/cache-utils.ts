@@ -36,8 +36,20 @@ export const handleActionEventCacheInvalidation = (
     );
   }
 
-  // Invalidate specific file diff cache for file modifications
-  if (
+  // Invalidate file diff cache for file modifications and bash commands.
+  // Bash commands (e.g. `git commit`, `git push`, `git checkout`) can change
+  // the working tree without going through the editor tools, so a stale diff
+  // (e.g. for a file that was just committed) would otherwise keep showing
+  // until it naturally expires or the user manually refreshes. Invalidate
+  // every cached working-tree diff for the conversation rather than a single
+  // path, since we don't know which files a bash command touched. Per-commit
+  // diffs live under a separate "commit_file_diff" cache root (see
+  // useUnifiedGitDiff) and are unaffected.
+  if (action.kind === "ExecuteBashAction") {
+    queryClient.invalidateQueries({
+      queryKey: ["file_diff", conversationId],
+    });
+  } else if (
     (action.kind === "StrReplaceEditorAction" ||
       action.kind === "FileEditorAction") &&
     action.path
