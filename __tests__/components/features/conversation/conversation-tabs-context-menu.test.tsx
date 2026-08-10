@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { useRef } from "react";
 import { ConversationTabsContextMenu } from "#/components/features/conversation/conversation-tabs/conversation-tabs-context-menu";
 import { useConversationStore } from "#/stores/conversation-store";
 import { ActiveBackendProvider } from "#/contexts/active-backend-context";
@@ -94,7 +95,9 @@ describe("ConversationTabsContextMenu", () => {
 
     render(<ConversationTabsContextMenu isOpen={true} onClose={vi.fn()} />);
 
-    await user.click(screen.getByTestId("conversation-tabs-menu-open-terminal"));
+    await user.click(
+      screen.getByTestId("conversation-tabs-menu-open-terminal"),
+    );
 
     expect(useConversationStore.getState().selectedTab).toBe("terminal");
     const storedState = JSON.parse(
@@ -150,6 +153,55 @@ describe("ConversationTabsContextMenu", () => {
 
     const storeState = useConversationStore.getState();
     expect(storeState.hasRightPanelToggled).toBe(true);
+  });
+
+  describe("when portaled to an anchor", () => {
+    function AnchoredMenu() {
+      const anchorRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button ref={anchorRef} type="button" data-testid="menu-anchor" />
+          <ConversationTabsContextMenu
+            isOpen
+            onClose={vi.fn()}
+            anchorRef={anchorRef}
+          />
+        </>
+      );
+    }
+
+    it("anchors the portal to the right edge instead of the left, so it never overflows past the viewport on narrow screens", () => {
+      // Simulate a narrow mobile viewport where the anchor sits near the
+      // right edge, leaving little room to the left of `rect.left`.
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: 375,
+      });
+
+      // Mocked before render so the mount-time position effect (which reads
+      // the anchor's rect synchronously) already sees it.
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+        top: 40,
+        bottom: 48,
+        left: 320,
+        right: 360,
+        width: 40,
+        height: 8,
+        x: 320,
+        y: 40,
+        toJSON: () => {},
+      } as DOMRect);
+
+      render(<AnchoredMenu />);
+
+      const positioned = screen
+        .getByTestId("conversation-tabs-menu-open-terminal")
+        .closest("div[style]") as HTMLElement;
+
+      expect(positioned.style.right).toBe(`${375 - 360}px`);
+      expect(positioned.style.left).toBe("");
+    });
   });
 
   describe("with tasklist", () => {

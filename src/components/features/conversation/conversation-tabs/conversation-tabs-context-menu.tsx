@@ -61,7 +61,7 @@ export function ConversationTabsContextMenu({
         position: "fixed",
         zIndex: 9999,
         top: rect.bottom + gap,
-        left: rect.left,
+        right: window.innerWidth - rect.right,
       });
     };
 
